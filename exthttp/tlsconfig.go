@@ -6,6 +6,7 @@ package exthttp
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"os"
 )
@@ -14,6 +15,8 @@ import (
 type TLSConfig struct {
 	// The CA cert to use for the targets.
 	CAFile string `yaml:"ca_file"`
+	// List of CA to be used
+	CAs []string `yaml:"ca"`
 	// The client cert file for the targets.
 	CertFile string `yaml:"cert_file"`
 	// The client key file for the targets.
@@ -36,6 +39,18 @@ func NewTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
 		}
 		if !updateRootCA(tlsConfig, b) {
 			return nil, fmt.Errorf("unable to use specified CA cert %s", cfg.CAFile)
+		}
+	}
+
+	if len(cfg.CAs) > 0 {
+		for _, c := range cfg.CAs {
+			certBytes, err := base64.StdEncoding.DecodeString(c)
+			if err != nil {
+				continue
+			}
+			if !updateRootCA(tlsConfig, certBytes) {
+				return nil, fmt.Errorf("unable to use specified CA cert %s", cfg.CAFile)
+			}
 		}
 	}
 
@@ -69,11 +84,12 @@ func readCAFile(f string) ([]byte, error) {
 
 // updateRootCA parses the given byte slice as a series of PEM encoded certificates and updates tls.Config.RootCAs.
 func updateRootCA(cfg *tls.Config, b []byte) bool {
-	caCertPool := x509.NewCertPool()
-	if !caCertPool.AppendCertsFromPEM(b) {
+	if cfg.RootCAs == nil {
+		cfg.RootCAs = x509.NewCertPool()
+	}
+	if !cfg.RootCAs.AppendCertsFromPEM(b) {
 		return false
 	}
-	cfg.RootCAs = caCertPool
 	return true
 }
 
