@@ -546,7 +546,7 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader, opts ...o
 	}
 
 	partSize := b.partSize
-	if size < int64(partSize) {
+	if size > 0 && size < int64(partSize) {
 		partSize = 0
 	}
 
