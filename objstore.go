@@ -63,7 +63,8 @@ type Bucket interface {
 	// Upload the contents of the reader as an object into the bucket.
 	// Upload should be idempotent.
 	Upload(ctx context.Context, name string, r io.Reader) error
-
+	// Upload with metadata
+	UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error
 	// Delete removes the object with the given name.
 	// If object does not exist in the moment of deletion, Delete should throw error.
 	Delete(ctx context.Context, name string) error
@@ -747,7 +748,7 @@ func (b *metricBucket) Exists(ctx context.Context, name string) (bool, error) {
 	return ok, nil
 }
 
-func (b *metricBucket) Upload(ctx context.Context, name string, r io.Reader) error {
+func (b *metricBucket) upload(ctx context.Context, name string, r io.Reader, upload func(trc io.ReadCloser) error) error {
 	const op = OpUpload
 	b.metrics.ops.WithLabelValues(op).Inc()
 
@@ -765,7 +766,7 @@ func (b *metricBucket) Upload(ctx context.Context, name string, r io.Reader) err
 		b.metrics.opsTransferredBytes,
 	)
 	defer trc.Close()
-	err := b.bkt.Upload(ctx, name, trc)
+	err := upload(trc)
 	if err != nil {
 		if !b.metrics.isOpFailureExpected(err) && ctx.Err() != context.Canceled {
 			b.metrics.opsFailures.WithLabelValues(op).Inc()
@@ -775,6 +776,18 @@ func (b *metricBucket) Upload(ctx context.Context, name string, r io.Reader) err
 	b.metrics.lastSuccessfulUploadTime.SetToCurrentTime()
 
 	return nil
+}
+
+func (b *metricBucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	return b.upload(ctx, name, r, func(trc io.ReadCloser) error {
+		return b.bkt.UploadWithMetadata(ctx, name, trc, metadata)
+	})
+}
+
+func (b *metricBucket) Upload(ctx context.Context, name string, r io.Reader) error {
+	return b.upload(ctx, name, r, func(trc io.ReadCloser) error {
+		return b.bkt.Upload(ctx, name, trc)
+	})
 }
 
 func (b *metricBucket) Delete(ctx context.Context, name string) error {

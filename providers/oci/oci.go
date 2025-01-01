@@ -218,6 +218,10 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) (err erro
 	return err
 }
 
+func (b *Bucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	return b.Upload(ctx, name, r)
+}
+
 // Exists checks if the given object exists in the bucket.
 func (b *Bucket) Exists(ctx context.Context, name string) (bool, error) {
 	_, err := getObject(ctx, *b, name, "")

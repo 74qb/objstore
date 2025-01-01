@@ -321,6 +321,11 @@ func (d *delayingBucket) Upload(ctx context.Context, name string, r io.Reader) e
 	return d.bkt.Upload(ctx, name, r)
 }
 
+func (d *delayingBucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	time.Sleep(d.delay)
+	return d.bkt.Upload(ctx, name, r)
+}
+
 func (d *delayingBucket) Delete(ctx context.Context, name string) error {
 	time.Sleep(d.delay)
 	return d.bkt.Delete(ctx, name)

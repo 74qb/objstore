@@ -526,6 +526,14 @@ func (b *Bucket) Exists(ctx context.Context, name string) (bool, error) {
 
 // Upload the contents of the reader as an object into the bucket.
 func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
+	return b.upload(ctx, name, r, nil)
+}
+
+func (b *Bucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	return b.upload(ctx, name, r, metadata)
+}
+
+func (b *Bucket) upload(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
 	sse, err := b.getServerSideEncryption(ctx)
 	if err != nil {
 		return err
@@ -547,6 +555,12 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
 	userMetadata := make(map[string]string, len(b.putUserMetadata))
 	for k, v := range b.putUserMetadata {
 		userMetadata[k] = v
+	}
+
+	for k, v := range metadata {
+		if v != nil {
+			userMetadata[k] = *v
+		}
 	}
 
 	if _, err := b.client.PutObject(

@@ -118,6 +118,14 @@ func (t TracingBucket) Upload(ctx context.Context, name string, r io.Reader) (er
 	return
 }
 
+func (t TracingBucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) (err error) {
+	doWithSpan(ctx, "bucket_upload", func(spanCtx context.Context, span opentracing.Span) {
+		span.LogKV("name", name)
+		err = t.bkt.UploadWithMetadata(spanCtx, name, r, metadata)
+	})
+	return
+}
+
 func (t TracingBucket) Delete(ctx context.Context, name string) (err error) {
 	doWithSpan(ctx, "bucket_delete", func(spanCtx context.Context, span opentracing.Span) {
 		span.LogKV("name", name)

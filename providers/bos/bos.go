@@ -178,6 +178,10 @@ func (b *Bucket) Upload(_ context.Context, name string, r io.Reader) error {
 	return nil
 }
 
+func (b *Bucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	return b.Upload(ctx, name, r)
+}
+
 func (b *Bucket) SupportedIterOptions() []objstore.IterOptionType {
 	return []objstore.IterOptionType{objstore.Recursive, objstore.UpdatedAt}
 }

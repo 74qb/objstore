@@ -375,6 +375,10 @@ func (c *Container) Upload(_ context.Context, name string, r io.Reader) (err err
 	return nil
 }
 
+func (c *Container) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	return c.Upload(ctx, name, r)
+}
+
 // Delete removes the object with the given name.
 func (c *Container) Delete(_ context.Context, name string) error {
 	return errors.Wrap(c.connection.LargeObjectDelete(c.name, name), "delete object")

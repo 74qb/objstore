@@ -190,6 +190,10 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
 	return nil
 }
 
+func (b *Bucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	return b.Upload(ctx, name, r)
+}
+
 func (b *Bucket) putObjectSingle(key string, body io.Reader) error {
 	input := &obs.PutObjectInput{}
 	input.Bucket = b.name

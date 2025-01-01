@@ -123,6 +123,19 @@ func (t TracingBucket) Upload(ctx context.Context, name string, r io.Reader) (er
 	return t.bkt.Upload(ctx, name, r)
 }
 
+func (t TracingBucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) (err error) {
+	ctx, span := t.tracer.Start(ctx, "bucket_upload")
+	defer span.End()
+	span.SetAttributes(attribute.String("name", name))
+
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+		}
+	}()
+	return t.bkt.UploadWithMetadata(ctx, name, r, metadata)
+}
+
 func (t TracingBucket) Delete(ctx context.Context, name string) (err error) {
 	ctx, span := t.tracer.Start(ctx, "bucket_delete")
 	defer span.End()

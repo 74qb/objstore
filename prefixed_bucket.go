@@ -105,6 +105,10 @@ func (p *PrefixedBucket) Upload(ctx context.Context, name string, r io.Reader) e
 	return p.bkt.Upload(ctx, conditionalPrefix(p.prefix, name), r)
 }
 
+func (p *PrefixedBucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	return p.bkt.UploadWithMetadata(ctx, conditionalPrefix(p.prefix, name), r, metadata)
+}
+
 // Delete removes the object with the given name.
 // If object does not exists in the moment of deletion, Delete should throw error.
 func (p *PrefixedBucket) Delete(ctx context.Context, name string) error {

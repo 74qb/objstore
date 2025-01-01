@@ -275,6 +275,10 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
 	return nil
 }
 
+func (b *Bucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+	return b.Upload(ctx, name, r)
+}
+
 // Delete removes the object with the given name.
 func (b *Bucket) Delete(ctx context.Context, name string) error {
 	if _, err := b.client.Object.Delete(ctx, name); err != nil {
