@@ -57,6 +57,7 @@ type Config struct {
 	ReaderConfig            ReaderConfig       `yaml:"reader_config"`
 	PipelineConfig          PipelineConfig     `yaml:"pipeline_config"`
 	HTTPConfig              exthttp.HTTPConfig `yaml:"http_config"`
+	CheckContainer          bool               `yaml:"check_container"`
 
 	// Deprecated: Is automatically set by the Azure SDK.
 	MSIResource string `yaml:"msi_resource"`
@@ -167,6 +168,22 @@ func NewBucketWithConfig(logger log.Logger, conf Config, component string, wrapR
 	containerClient, err := getContainerClient(conf, wrapRoundtripper)
 	if err != nil {
 		return nil, err
+	}
+
+	if conf.CheckContainer {
+		// Check if storage account container already exists, and create one if it does not.
+		ctx := context.Background()
+		_, err = containerClient.GetProperties(ctx, &container.GetPropertiesOptions{})
+		if err != nil {
+			if !bloberror.HasCode(err, bloberror.ContainerNotFound) {
+				return nil, err
+			}
+			_, err := containerClient.Create(ctx, nil)
+			if err != nil {
+				return nil, errors.Wrapf(err, "error creating Azure blob container: %s", conf.ContainerName)
+			}
+			level.Info(logger).Log("msg", "Azure blob container successfully created", "address", conf.ContainerName)
+		}
 	}
 
 	// Check if storage account container already exists, and create one if it does not.
