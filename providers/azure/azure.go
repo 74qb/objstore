@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
@@ -92,6 +93,25 @@ type PipelineConfig struct {
 	TryTimeout    model.Duration `yaml:"try_timeout"`
 	RetryDelay    model.Duration `yaml:"retry_delay"`
 	MaxRetryDelay model.Duration `yaml:"max_retry_delay"`
+}
+type blobClient interface {
+	GetProperties(ctx context.Context, options *blob.GetPropertiesOptions) (blob.GetPropertiesResponse, error)
+	Delete(ctx context.Context, o *blob.DeleteOptions) (blob.DeleteResponse, error)
+	DownloadStream(ctx context.Context, o *blob.DownloadStreamOptions) (blob.DownloadStreamResponse, error)
+	URL() string
+}
+type blockBlobClient interface {
+	UploadStream(ctx context.Context, body io.Reader, o *blockblob.UploadStreamOptions) (blockblob.UploadStreamResponse, error)
+}
+
+type containerClient interface {
+	NewBlockBlobClient(name string) blockBlobClient
+	NewBlobClient(name string) blobClient
+	GetProperties(ctx context.Context, o *container.GetPropertiesOptions) (container.GetPropertiesResponse, error)
+	Create(ctx context.Context, options *container.CreateOptions) (container.CreateResponse, error)
+	NewListBlobsFlatPager(o *container.ListBlobsFlatOptions) *runtime.Pager[container.ListBlobsFlatResponse]
+	NewListBlobsHierarchyPager(delimiter string, o *container.ListBlobsHierarchyOptions) *runtime.Pager[container.ListBlobsHierarchyResponse]
+	Delete(ctx context.Context, options *container.DeleteOptions) (container.DeleteResponse, error)
 }
 
 // Validate checks to see if any of the config options are set.
@@ -169,7 +189,7 @@ func parseConfig(conf []byte) (Config, error) {
 // Bucket implements the store.Bucket interface against Azure APIs.
 type Bucket struct {
 	logger           log.Logger
-	containerClient  *container.Client
+	containerClient  containerClient
 	containerName    string
 	readerMaxRetries int
 }

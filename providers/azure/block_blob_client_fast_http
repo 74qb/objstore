@@ -1,0 +1,96 @@
+package azure
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
+	"github.com/pkg/errors"
+	"github.com/valyala/fasthttp"
+)
+
+type fastHTTPBlockBlobClient struct {
+	baseURL string
+	client  *fasthttp.Client
+	cred    *container.SharedKeyCredential
+}
+
+func NewFastHTTPBlockBlobClient(blobURL string, cred *container.SharedKeyCredential) blockBlobClient {
+	return &fastHTTPBlockBlobClient{
+		baseURL: blobURL,
+		client:  &fasthttp.Client{},
+		cred:    cred,
+	}
+}
+
+// UploadStream uploads a stream of data to the block blob.
+func (c *fastHTTPBlockBlobClient) UploadStream(ctx context.Context, body io.Reader, options *blockblob.UploadStreamOptions) (blockblob.UploadStreamResponse, error) {
+	url := fmt.Sprintf("%s", c.baseURL)
+	req := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(req)
+
+	// Read the body into a buffer (fasthttp requires the body to be fully loaded in memory).
+	buf := new(bytes.Buffer)
+	if _, err := io.Copy(buf, body); err != nil {
+		return blockblob.UploadStreamResponse{}, errors.Wrap(err, "failed to read body into buffer")
+	}
+
+	req.SetRequestURI(url)
+	req.Header.SetMethod(fasthttp.MethodPut)
+	req.SetBody(buf.Bytes())
+
+	// Set headers for the request.
+	if options != nil && options.HTTPHeaders != nil {
+		if options.HTTPHeaders.BlobContentType != nil {
+			req.Header.Set("Content-Type", *options.HTTPHeaders.BlobContentType)
+		}
+		if options.HTTPHeaders.BlobContentEncoding != nil {
+			req.Header.Set("Content-Encoding", *options.HTTPHeaders.BlobContentEncoding)
+		}
+		if options.HTTPHeaders.BlobContentLanguage != nil {
+			req.Header.Set("Content-Language", *options.HTTPHeaders.BlobContentLanguage)
+		}
+		if options.HTTPHeaders.BlobContentDisposition != nil {
+			req.Header.Set("Content-Disposition", *options.HTTPHeaders.BlobContentDisposition)
+		}
+		if options.HTTPHeaders.BlobCacheControl != nil {
+			req.Header.Set("Cache-Control", *options.HTTPHeaders.BlobCacheControl)
+		}
+	}
+
+	// Set metadata headers if provided.
+	if options != nil && options.Metadata != nil {
+		for key, value := range options.Metadata {
+			req.Header.Set(fmt.Sprintf("x-ms-meta-%s", key), value)
+		}
+	}
+
+	// Set Azure-specific headers.
+	req.Header.Set("x-ms-blob-type", "BlockBlob")
+	req.Header.Set("x-ms-version", "2020-10-02")
+
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(resp)
+
+	// Perform the request.
+	if err := c.client.Do(req, resp); err != nil {
+		return blockblob.UploadStreamResponse{}, errors.Wrap(err, "failed to upload stream")
+	}
+
+	// Check for success status code.
+	if resp.StatusCode() != fasthttp.StatusCreated {
+		return blockblob.UploadStreamResponse{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode())
+	}
+
+	// Return a successful response.
+	return blockblob.UploadStreamResponse{
+		// Populate fields as needed (e.g., ETag, LastModified) from response headers.
+		ETag:         to.Ptr(string(resp.Header.Peek("ETag"))),
+		LastModified: to.Ptr(time.Now()), // Replace with actual parsing from headers.
+	}, nil
+}

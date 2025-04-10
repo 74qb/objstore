@@ -1,0 +1,219 @@
+package azure
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
+	"github.com/pkg/errors"
+	"github.com/valyala/fasthttp"
+)
+
+type fastHTTPContainerClient struct {
+	baseURL string
+	client  *fasthttp.Client
+	cred    *container.SharedKeyCredential
+}
+
+// NewFastHTTPContainerClientFromConnectionString creates a containerClient using a connection string.
+func NewFastHTTPContainerClientFromConnectionString(connectionString, containerName string) (containerClient, error) {
+	// Parse the connection string to extract parameters.
+	params, err := parseConnectionString(connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+
+	// Validate required parameters.
+	accountName, ok := params["AccountName"]
+	if !ok {
+		return nil, fmt.Errorf("missing AccountName in connection string")
+	}
+	accountKey, ok := params["AccountKey"]
+	if !ok {
+		return nil, fmt.Errorf("missing AccountKey in connection string")
+	}
+	endpointSuffix := params["EndpointSuffix"]
+	if endpointSuffix == "" {
+		endpointSuffix = "core.windows.net" // Default value for Azure.
+	}
+
+	// Construct the base URL using the extracted parameters.
+	baseURL := fmt.Sprintf("https://%s.blob.%s/%s", accountName, endpointSuffix, containerName)
+
+	// Create a SharedKeyCredential for authentication.
+	cred, err := container.NewSharedKeyCredential(accountName, accountKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create shared key credential: %w", err)
+	}
+
+	// Create and return the fastHTTPContainerClient.
+	return NewFastHTTPContainerClientWithSharedKeyCredential(baseURL, cred)
+}
+
+// Helper function to parse the connection string into a map of key-value pairs.
+func parseConnectionString(connectionString string) (map[string]string, error) {
+	params := make(map[string]string)
+	parts := strings.Split(connectionString, ";")
+	for _, part := range parts {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			return nil, fmt.Errorf("invalid connection string format")
+		}
+		params[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+	}
+
+	// Validate required parameters.
+	if _, ok := params["AccountName"]; !ok {
+		return nil, fmt.Errorf("missing AccountName in connection string")
+	}
+	if _, ok := params["EndpointSuffix"]; !ok {
+		params["EndpointSuffix"] = "core.windows.net" // Default value for Azure.
+	}
+
+	return params, nil
+}
+
+// NewFastHTTPContainerClientWithSharedKeyCredential creates a containerClient using shared key credentials.
+func NewFastHTTPContainerClientWithSharedKeyCredential(containerURL string, cred *container.SharedKeyCredential) (containerClient, error) {
+	if cred == nil {
+		return nil, fmt.Errorf("shared key credential is required")
+	}
+	return &fastHTTPContainerClient{
+		baseURL: containerURL,
+		client:  &fasthttp.Client{},
+		cred:    cred,
+	}, nil
+}
+
+// NewFastHTTPContainerClientWithTokenCredential creates a containerClient using token credentials.
+func NewFastHTTPContainerClientWithTokenCredential(containerURL string) (containerClient, error) {
+	return &fastHTTPContainerClient{
+		baseURL: containerURL,
+		client:  &fasthttp.Client{},
+	}, nil
+}
+
+func (c *fastHTTPContainerClient) NewBlobClient(name string) blobClient {
+	blobURL := fmt.Sprintf("%s/%s", c.baseURL, name)
+	return NewFastHTTPBlobClient(blobURL, c.cred)
+}
+
+func (c *fastHTTPContainerClient) NewBlockBlobClient(name string) blockBlobClient {
+	blobURL := fmt.Sprintf("%s/%s", c.baseURL, name)
+	return NewFastHTTPBlockBlobClient(blobURL, c.cred)
+}
+
+// Example: GetProperties method with request signing.
+func (c *fastHTTPContainerClient) GetProperties(ctx context.Context, o *container.GetPropertiesOptions) (container.GetPropertiesResponse, error) {
+	url := fmt.Sprintf("%s?restype=container", c.baseURL)
+	req := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(req)
+
+	req.SetRequestURI(url)
+	req.Header.SetMethod(fasthttp.MethodHead)
+
+	// Sign the request.
+	if err := signRequest(req, fasthttp.MethodHead, url, c); err != nil {
+		return container.GetPropertiesResponse{}, fmt.Errorf("failed to sign request: %w", err)
+	}
+
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(resp)
+
+	// Send the request.
+	if err := c.client.Do(req, resp); err != nil {
+		return container.GetPropertiesResponse{}, errors.Wrap(err, "failed to get container properties")
+	}
+
+	if resp.StatusCode() != fasthttp.StatusOK {
+		return container.GetPropertiesResponse{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode())
+	}
+
+	// Parse response headers into container.GetPropertiesResponse.
+	response := container.GetPropertiesResponse{
+		LastModified: to.Ptr(time.Now()), // Replace with actual parsing from headers.
+	}
+
+	return response, nil
+}
+
+// Example: Create method with request signing.
+func (c *fastHTTPContainerClient) Create(ctx context.Context, options *container.CreateOptions) (container.CreateResponse, error) {
+	url := fmt.Sprintf("%s?restype=container", c.baseURL)
+	req := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(req)
+
+	req.SetRequestURI(url)
+	req.Header.SetMethod(fasthttp.MethodPut)
+
+	// Set metadata headers if provided.
+	if options != nil && options.Metadata != nil {
+		for key, value := range options.Metadata {
+			req.Header.Set(fmt.Sprintf("x-ms-meta-%s", key), value)
+		}
+	}
+
+	// Sign the request.
+	if err := c.signRequest(req, fasthttp.MethodPut, url); err != nil {
+		return container.CreateResponse{}, fmt.Errorf("failed to sign request: %w", err)
+	}
+
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(resp)
+
+	// Send the request.
+	if err := c.client.Do(req, resp); err != nil {
+		return container.CreateResponse{}, errors.Wrap(err, "failed to create container")
+	}
+
+	if resp.StatusCode() != fasthttp.StatusCreated {
+		return container.CreateResponse{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode())
+	}
+
+	return container.CreateResponse{}, nil
+}
+
+func (c *fastHTTPContainerClient) NewListBlobsFlatPager(o *container.ListBlobsFlatOptions) *runtime.Pager[container.ListBlobsFlatResponse] {
+	// fasthttp does not have built-in support for pagers, so you would need to implement this manually.
+	// This is a placeholder for the actual implementation.
+	return nil
+}
+
+func (c *fastHTTPContainerClient) NewListBlobsHierarchyPager(delimiter string, o *container.ListBlobsHierarchyOptions) *runtime.Pager[container.ListBlobsHierarchyResponse] {
+	// fasthttp does not have built-in support for pagers, so you would need to implement this manually.
+	// This is a placeholder for the actual implementation.
+	return nil
+}
+
+func (c *fastHTTPContainerClient) Delete(ctx context.Context, options *container.DeleteOptions) (container.DeleteResponse, error) {
+	url := fmt.Sprintf("%s?restype=container", c.baseURL)
+	req := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(req)
+
+	req.SetRequestURI(url)
+	req.Header.SetMethod(fasthttp.MethodDelete)
+
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(resp)
+
+	if err := c.client.Do(req, resp); err != nil {
+		return container.DeleteResponse{}, errors.Wrap(err, "failed to delete container")
+	}
+
+	if resp.StatusCode() != fasthttp.StatusAccepted {
+		return container.DeleteResponse{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode())
+	}
+
+	return container.DeleteResponse{}, nil
+}
+
+// Helper function to extract account name from connection string.
+func extractAccountName(connectionString string) string {
+	// Parse the connection string and extract the account name.
+	// This is a placeholder implementation.
+	return "accountName"
+}

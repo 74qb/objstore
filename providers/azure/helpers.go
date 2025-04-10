@@ -19,7 +19,19 @@ import (
 // DirDelim is the delimiter used to model a directory structure in an object store bucket.
 const DirDelim = "/"
 
-func getContainerClient(conf Config, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (*container.Client, error) {
+type containerClientWrapper struct {
+	*container.Client
+}
+
+func (cc *containerClientWrapper) NewBlobClient(name string) blobClient {
+	return cc.Client.NewBlobClient(name)
+}
+
+func (cc *containerClientWrapper) NewBlockBlobClient(name string) blockBlobClient {
+	return cc.Client.NewBlockBlobClient(name)
+}
+
+func getContainerClient(conf Config, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (containerClient, error) {
 	var rt http.RoundTripper
 	rt, err := exthttp.DefaultTransport(conf.HTTPConfig)
 	if err != nil {
@@ -48,11 +60,11 @@ func getContainerClient(conf Config, wrapRoundtripper func(http.RoundTripper) ht
 
 	// Use connection string if set
 	if conf.StorageConnectionString != "" {
-		containerClient, err := container.NewClientFromConnectionString(conf.StorageConnectionString, conf.ContainerName, opt)
+		client, err := container.NewClientFromConnectionString(conf.StorageConnectionString, conf.ContainerName, opt)
 		if err != nil {
 			return nil, err
 		}
-		return containerClient, nil
+		return &containerClientWrapper{Client: client}, nil
 	}
 
 	containerURL := fmt.Sprintf("https://%s.%s/%s", conf.StorageAccountName, conf.Endpoint, conf.ContainerName)
@@ -63,11 +75,11 @@ func getContainerClient(conf Config, wrapRoundtripper func(http.RoundTripper) ht
 		if err != nil {
 			return nil, err
 		}
-		containerClient, err := container.NewClientWithSharedKeyCredential(containerURL, cred, opt)
+		client, err := container.NewClientWithSharedKeyCredential(containerURL, cred, opt)
 		if err != nil {
 			return nil, err
 		}
-		return containerClient, nil
+		return &containerClientWrapper{Client: client}, nil
 	}
 
 	// Otherwise use a token credential
@@ -77,12 +89,12 @@ func getContainerClient(conf Config, wrapRoundtripper func(http.RoundTripper) ht
 		return nil, err
 	}
 
-	containerClient, err := container.NewClient(containerURL, cred, opt)
+	client, err := container.NewClient(containerURL, cred, opt)
 	if err != nil {
 		return nil, err
 	}
 
-	return containerClient, nil
+	return &containerClientWrapper{Client: client}, nil
 }
 
 func getTokenCredential(conf Config) (azcore.TokenCredential, error) {
