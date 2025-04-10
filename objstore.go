@@ -198,6 +198,7 @@ func ApplyIterOptions(options ...IterOption) IterParams {
 
 type UploadObjectParams struct {
 	ContentType string
+	Metadata    map[string]*string
 }
 
 type ObjectUploadOption func(f *UploadObjectParams)
@@ -205,6 +206,12 @@ type ObjectUploadOption func(f *UploadObjectParams)
 func WithContentType(contentType string) ObjectUploadOption {
 	return func(f *UploadObjectParams) {
 		f.ContentType = contentType
+	}
+}
+
+func WithMetadata(metadata map[string]*string) ObjectUploadOption {
+	return func(f *UploadObjectParams) {
+		f.Metadata = metadata
 	}
 }
 

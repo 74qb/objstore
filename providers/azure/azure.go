@@ -393,6 +393,7 @@ func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader, uploadOpt
 		HTTPHeaders: &blob.HTTPHeaders{
 			BlobContentType: &uploadOptions.ContentType,
 		},
+		Metadata: uploadOptions.Metadata,
 	}
 	if _, err := blobClient.UploadStream(ctx, r, opts); err != nil {
 		return errors.Wrapf(err, "cannot upload Azure blob, address: %s", name)
