@@ -209,7 +209,7 @@ type overrideSignerType struct {
 }
 
 func (s *overrideSignerType) Retrieve() (credentials.Value, error) {
-	v, err := s.Provider.Retrieve()
+	v, err := s.RetrieveWithCredContext(nil)
 	if err != nil {
 		return v, err
 	}
@@ -530,7 +530,14 @@ func (b *Bucket) GetRange(ctx context.Context, name string, off, length int64) (
 
 // Exists checks if the given object exists.
 func (b *Bucket) Exists(ctx context.Context, name string) (bool, error) {
-	_, err := b.client.StatObject(ctx, b.name, name, minio.StatObjectOptions{})
+	sse, err := b.getServerSideEncryption(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	_, err = b.client.StatObject(ctx, b.name, name, minio.StatObjectOptions{
+		ServerSideEncryption: sse,
+	})
 	if err != nil {
 		if b.IsObjNotFoundErr(err) {
 			return false, nil
@@ -542,15 +549,7 @@ func (b *Bucket) Exists(ctx context.Context, name string) (bool, error) {
 }
 
 // Upload the contents of the reader as an object into the bucket.
-func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
-	return b.upload(ctx, name, r, nil)
-}
-
-func (b *Bucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
-	return b.upload(ctx, name, r, metadata)
-}
-
-func (b *Bucket) upload(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader, opts ...objstore.ObjectUploadOption) error {
 	sse, err := b.getServerSideEncryption(ctx)
 	if err != nil {
 		return err
@@ -574,7 +573,9 @@ func (b *Bucket) upload(ctx context.Context, name string, r io.Reader, metadata 
 		userMetadata[k] = v
 	}
 
-	for k, v := range metadata {
+	uploadOpts := objstore.ApplyObjectUploadOptions(opts...)
+
+	for k, v := range uploadOpts.Metadata {
 		if v != nil {
 			userMetadata[k] = *v
 		}
@@ -596,7 +597,8 @@ func (b *Bucket) upload(ctx context.Context, name string, r io.Reader, metadata 
 			// 4 is what minio-go have as the default. To be certain we do micro benchmark before any changes we
 			// ensure we pin this number to four.
 			// TODO(bwplotka): Consider adjusting this number to GOMAXPROCS or to expose this in config if it becomes bottleneck.
-			NumThreads: 4,
+			NumThreads:  4,
+			ContentType: uploadOpts.ContentType,
 		},
 	); err != nil {
 		return errors.Wrap(err, "upload s3 object")
@@ -607,7 +609,14 @@ func (b *Bucket) upload(ctx context.Context, name string, r io.Reader, metadata 
 
 // Attributes returns information about the specified object.
 func (b *Bucket) Attributes(ctx context.Context, name string) (objstore.ObjectAttributes, error) {
-	objInfo, err := b.client.StatObject(ctx, b.name, name, minio.StatObjectOptions{})
+	sse, err := b.getServerSideEncryption(ctx)
+	if err != nil {
+		return objstore.ObjectAttributes{}, err
+	}
+
+	objInfo, err := b.client.StatObject(ctx, b.name, name, minio.StatObjectOptions{
+		ServerSideEncryption: sse,
+	})
 	if err != nil {
 		return objstore.ObjectAttributes{}, err
 	}

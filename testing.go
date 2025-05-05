@@ -333,14 +333,9 @@ func (d *delayingBucket) Exists(ctx context.Context, name string) (bool, error) 
 	return d.bkt.Exists(ctx, name)
 }
 
-func (d *delayingBucket) Upload(ctx context.Context, name string, r io.Reader) error {
+func (d *delayingBucket) Upload(ctx context.Context, name string, r io.Reader, opts ...ObjectUploadOption) error {
 	time.Sleep(d.delay)
-	return d.bkt.Upload(ctx, name, r)
-}
-
-func (d *delayingBucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
-	time.Sleep(d.delay)
-	return d.bkt.Upload(ctx, name, r)
+	return d.bkt.Upload(ctx, name, r, opts...)
 }
 
 func (d *delayingBucket) Delete(ctx context.Context, name string) error {

@@ -63,6 +63,9 @@ var DefaultConfig = Config{
 
 // Config Azure storage configuration.
 type Config struct {
+	AzTenantID              string             `yaml:"az_tenant_id"`
+	ClientID                string             `yaml:"client_id"`
+	ClientSecret            string             `yaml:"client_secret"`
 	StorageAccountName      string             `yaml:"storage_account"`
 	StorageAccountKey       string             `yaml:"storage_account_key"`
 	StorageConnectionString string             `yaml:"storage_connection_string"`
@@ -100,6 +103,14 @@ func (conf *Config) validate() error {
 
 	if conf.UserAssignedID != "" && conf.StorageConnectionString != "" {
 		errMsg = append(errMsg, "user_assigned_id cannot be set when using storage_connection_string authentication")
+	}
+
+	if conf.UserAssignedID != "" && conf.ClientID != "" {
+		errMsg = append(errMsg, "user_assigned_id cannot be set when using client_id authentication")
+	}
+
+	if (conf.AzTenantID != "" || conf.ClientSecret != "" || conf.ClientID != "") && (conf.AzTenantID == "" || conf.ClientSecret == "" || conf.ClientID == "") {
+		errMsg = append(errMsg, "az_tenant_id, client_id, and client_secret must be set together")
 	}
 
 	if conf.StorageAccountKey != "" && conf.StorageConnectionString != "" {
@@ -387,27 +398,24 @@ func (b *Bucket) Exists(ctx context.Context, name string) (bool, error) {
 	return true, nil
 }
 
-func (b *Bucket) upload(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
+// Upload the contents of the reader as an object into the bucket.
+func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader, uploadOpts ...objstore.ObjectUploadOption) error {
 	level.Debug(b.logger).Log("msg", "uploading blob", "blob", name)
 	blobClient := b.containerClient.NewBlockBlobClient(name)
+
+	uploadOptions := objstore.ApplyObjectUploadOptions(uploadOpts...)
 	opts := &blockblob.UploadStreamOptions{
 		BlockSize:   3 * 1024 * 1024,
 		Concurrency: 4,
-		Metadata:    metadata,
+		HTTPHeaders: &blob.HTTPHeaders{
+			BlobContentType: &uploadOptions.ContentType,
+		},
+		Metadata: uploadOptions.Metadata,
 	}
 	if _, err := blobClient.UploadStream(ctx, r, opts); err != nil {
 		return errors.Wrapf(err, "cannot upload Azure blob, address: %s", name)
 	}
 	return nil
-}
-
-// Upload the contents of the reader as an object into the bucket.
-func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader) error {
-	return b.upload(ctx, name, r, nil)
-}
-
-func (b *Bucket) UploadWithMetadata(ctx context.Context, name string, r io.Reader, metadata map[string]*string) error {
-	return b.upload(ctx, name, r, metadata)
 }
 
 // Delete removes the object with the given name.
